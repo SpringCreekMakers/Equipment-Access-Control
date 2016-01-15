@@ -23,6 +23,7 @@
 // NOTE: These need to be included during compiling
 #include <stdio.h>  
 #include <wiringPi.h>
+#include <wiringSerial.h>
 #include <mysql.h>
 
 // Defining Constants 
@@ -53,6 +54,8 @@
 	// Other Defined Variables
 		// Debounce time in mS
 #define DEBOUNCE_TIME 100
+		// Time in mS to attempt to read RFID Token
+#define RFID_READ_TIME 10000
 		// Time in mS between verifying RFID Token
 #define REAUTHENTICATE_TIME 30000
 		// Time in mS for disconnect warning
@@ -89,6 +92,9 @@ int LEDState; // Check the LEDHandler function for a list of different states
 int buzzerState; // "t" RFID tag error make sure its attached, "f" power button off, "a" not authorized, "A" authorized, "s" start up
 int alertedPowerOff; // Has the user been alerted to power off state
 int alertedAuthorized; // Has the user been alerted that they're authorized
+
+	// Function Variables
+int settingRFIDToken; // Is the setRFIDToken currently attempting to set the token? This is to prevent multiple threads
 	// Reservation Variables
 
 
@@ -447,6 +453,9 @@ void initialize() {
 	buzzerState = 4;
 	alertedPowerOff = 0;
 	alertedAuthorized = 0;
+
+		// Function Variables
+	settingRFIDToken = 0;
 }
 
 void IRInterrupt(void) {
@@ -479,8 +488,68 @@ void powerInterrupt(void) {
 	}
 }
 
-void setRFIDToken(void) {
-	// we need an attempting read variable. same with authent and auth
+int setRFIDToken(void) {
+	int fd;
+	int RFIDReadTime;
+	char readChar;
+	int startCharDetected = 0;
+	int lastCharSet;
+	int endCharDetected = 0; 
+	// Check to see if setRFIDToken has already been called
+	if(!(settingRFIDToken)) {
+		settingRFIDToken = 1;
+		// Turn on RFID Reader
+		digitalWrite(RFID_POWER, HIGH);
+
+		// Wait a little for the reader to start up
+		delay(10);
+		// Begin serial communication with RFID reader
+		if((fd = serialOpen("/dev/ttyAMA0", 9600)) < 0) {
+    		fprintf (stderr, "Unable to open serial device: %s\n", strerror (errno)) ;
+    		return 1 ;
+  		}
+  		// Check to see if any chars are available 
+  		do {
+  			// Has RFID read time been set? If not, set it
+			if(RFIDReadTime < millis()) {
+				RFIDReadTime = millis() + RFID_READ_TIME;
+			}
+			// Are there chars available?
+			if(serialDataAvail(fd) > 0) {
+				// Read in char and check read variables
+				readChar = serialGetchar(fd);
+				if(startCharDetected == 1 && endCharDetected == 1) {
+					// Tokens been set, turn off RFID reader,clear serial, return 0
+
+
+				} else if(startCharDetected) {
+					// We've started to read token, check where we are 
+
+
+				} else if (!(startCharDetected)) {
+					// Check to see if current char is start , if not discard
+
+
+				}
+			} else if (startCharDetected == 1 && endCharDetected == 1) {
+				// Token has been set, turn RFID reader off and return 0
+
+			} else if (serialDataAvail(fd) < 0) {
+				fprintf (stderr, "Unable to read serial data: %s\n", strerror (errno)) ;
+    			return 1 ;
+			} else {
+				// Error
+			}
+  		} while (millis() > RFIDReadTime && startCharDetected == 0);
+  		// If the end char has not been set by this point the RFID Token can not be read
+  		if(!(endCharDetected)) {
+  			fprintf (stderr, "Unable to read RFID Token: Allotted time has expired!\n");
+    		return 1 ;
+  		}
+	} else {
+		// Report an error
+	}
+	
 	sleep(20);
 	RFIDTokenSet = 1;
 }
