@@ -512,16 +512,22 @@ int setRFIDToken(void) {
 		settingRFIDToken = 0;
 		return 1 ;
 	}
-	// Check to see if any chars are available 
+	serialFlush(fd);
+	// Check to see if any chars are available
+	int tempcounter = 0;
 	do {
+		tempcounter ++;
+		printf("Entered Do/While loop: %d\n", tempcounter);
 		// Has RFID read time been set? If not, set it
 		if(RFIDReadTime < millis()) {
 			RFIDReadTime = millis() + RFID_READ_TIME;
 		}
-		//int dataAvail = serialDataAvail(fd);
-		//printf("Data Available: %d", dataAvail);
+		int dataAvail = serialDataAvail(fd);
+		printf("Data Available: %d\n", dataAvail);
 		// Are there chars available?
-		//if(serialDataAvail(fd) > 0) {
+		if(serialDataAvail(fd) > 0) {
+			printf("Entered if statement Serial Data Available\n");
+			printf("Available Chars %d\n", serialDataAvail(fd));
 			// Read in char and check read variables
 			readChar = serialGetchar(fd);
 			printf("readChar: %c", readChar);
@@ -532,7 +538,6 @@ int setRFIDToken(void) {
 				serialClose(fd);
 				RFIDTokenSet = 1;
 				settingRFIDToken = 0;
-				return 0;
 			} else if(startCharDetected) {
 				// We've started to read token, check where we are 
 				if(lastCharSet < 9 && lastCharSet >= 0) { // Reader supply's 12 chars. Start, End, and 10 chars in the actual token
@@ -558,24 +563,25 @@ int setRFIDToken(void) {
 					startCharDetected = 1;
 				}
 			}
-		if(startCharDetected == 1 && endCharDetected == 1) {
+		} else if(startCharDetected == 1 && endCharDetected == 1) {
 			// Token has been set, turn RFID reader off and return 0
 			digitalWrite(RFID_POWER, LOW);
 			serialClose(fd);
 			RFIDTokenSet = 1;
 			settingRFIDToken = 0;
 			return 0;
-		} /*else if(serialDataAvail(fd) < 0) {
+		} else if(serialDataAvail(fd) < 0) {
 			fprintf (stderr, "Unable to read serial data: %s\n", strerror (errno));
 			settingRFIDToken = 0;
 			return 1;
-		}*/
+		}
 	} while(millis() < RFIDReadTime && startCharDetected == 0);
 	// If the end char has not been set by this point the RFID Token can not be read
-	if(!(endCharDetected)) {
+	if(!(endCharDetected) && !(startCharDetected)) {
 		fprintf (stderr, "Unable to read RFID Token: Allotted time has expired!\n");
 		settingRFIDToken = 0;
-	return 1;
+		serialClose(fd);
+		return 1;
 	}
 }
 
