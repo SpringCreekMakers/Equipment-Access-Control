@@ -517,20 +517,20 @@ int setRFIDToken(void) {
 	int tempcounter = 0;
 	do {
 		tempcounter ++;
-		printf("Entered Do/While loop: %d\n", tempcounter);
+		//printf("Entered Do/While loop: %d\n", tempcounter);
 		// Has RFID read time been set? If not, set it
 		if(RFIDReadTime < millis()) {
 			RFIDReadTime = millis() + RFID_READ_TIME;
 		}
 		int dataAvail = serialDataAvail(fd);
-		printf("Data Available: %d\n", dataAvail);
+		//printf("Data Available: %d\n", dataAvail);
 		// Are there chars available?
 		if(serialDataAvail(fd) > 0) {
 			printf("Entered if statement Serial Data Available\n");
 			printf("Available Chars %d\n", serialDataAvail(fd));
 			// Read in char and check read variables
-			readChar = serialGetchar(fd);
-			printf("readChar: %c", readChar);
+			//readChar = serialGetchar(fd);
+			printf("readChar: %c\n", serialGetchar(fd));
 			if(startCharDetected == 1 && endCharDetected == 1) {
 				// Token has been set, turn off RFID reader,clear serial, return 0
 				digitalWrite(RFID_POWER, LOW);
