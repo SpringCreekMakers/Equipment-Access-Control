@@ -56,6 +56,8 @@
 	// Other Defined Variables
 		// Debounce time in mS
 #define DEBOUNCE_TIME 100
+#define RFID_BANDRATE 9600
+#define RFID_MAX_ATTEMPTS 5
 		// Time in mS to attempt to read RFID Token
 #define RFID_READ_TIME 10000
 		// Time in mS between verifying RFID Token
@@ -79,30 +81,27 @@ char *database = "mysql";
 
 	// Authentication Variables 
 int equipmentID = 1234567;
-int RFIDTokenSet;
 char tempRFIDToken[13];
 char RFIDToken[13];
+int RFIDTokenSet;
 int authenticated;
 int authorized;
-int lastAuthenticated;
-int disconnectTime;
 
 	// State Variables
-int IRInterruptState; // 1 - RFID Tag inserted, 0 - No tag inserted
-int powerButtonState; // 1 - on, 0 - off
-int powerRelayState; // 1 - Power on, 0 - Power off
+int IRInterruptState; 
+int powerButtonState; 
+int powerRelayState; 
+int RFIDPowerState;
 int LEDState; // Check the LEDHandler function for a list of different states
 int buzzerState; // "t" RFID tag error make sure its attached, "f" power button off, "a" not authorized, "A" authorized, "s" start up
-int alertedPowerOff; // Has the user been alerted to power off state
-int alertedAuthorized; // Has the user been alerted that they're authorized
 
 	// Function Variables
-int gettingRFIDToken; // Is the getRFIDToken currently attempting to set the token? This is to prevent multiple threads
-int comparingRFIDTokens; 
-int connectingPower;
-int disconnectWarning; // Have we began to count down to discount
-int disconnectingWarning;
+int lastAuthenticated;
+int disconnectTime;
+int RFIDAttempts;
 int requestedPowerRelayState;
+int requestedRFIDPowerState;
+
 	// Reservation Variables
 
 
@@ -119,115 +118,96 @@ void resetVariables(void);
 int powerWarning(char);
 
 PI_THREAD(accessControlHandler) {
-
+	/*************** Different Main States ********************
+	* Waiting
+	* Reading
+	* Authenticating
+	* Authorized
+	**********************************************************/
 	for(;;) {
-		if(!(disconnectingWarning)) {
-			// Is there a RFID Token inserted? (its low/0 when a Token is inserted)
-			if(IRInterruptState == 0) {
+		// Is there a RFID Token inserted? 
+		if(IRInterruptState == 1) {
 
-				// Has the RFID Token been set?
-				if(RFIDTokenSet == 1) {
+			// Has the RFID Token been set?
+			if(RFIDTokenSet == 1) {
 
-					// Has the RFID Token been authenticated?
-					if(authenticated == 1) {
+				// Has the RFID Token been authenticated?
+				if(authenticated == 1) {
 
-						// is the RFID Token authorized to use this Equipment 
-						if(authorized == 1) {
+					// is the RFID Token authorized to use this Equipment 
+					if(authorized == 1) {
 
-							// Determining what to do based on the power relay and button states
-							if(!(powerRelayState) || !(powerButtonState)) {
+						// Determining what to do based on the power relay and button states
 
-								// Is the power relay state true
-								if(!(powerRelayState) && powerButtonState == 1) {
+							// Everything is authorized, on, and working
+						if(powerRelayState && powerButtonState) {
+							LEDState = 3;
+							buzzerState = 3;
 
-									//Run power connect
-									if(!(connectingPower)) {
-										powerConnect('A');
-										connectingPower = 1;
-									}
-								} 
+							// The power button is off
+						} else if(!(powerButtonState)) {
+							if(powerRelayState) powerDisconnect('B');
+							LEDState = 5;
+							buzzerState = 1;
 
-								// If the power button is off alert user
-								if(!(powerButtonState)) {
-									// is there a pending disconnectWarning
-									if(!(disconnectWarning)) LEDState = 5;
+							// The power button is on
+						} else if(powerButtonState) {
+							if(!(powerRelayState)) powerConnect('A');
 
-									// Has the user been alerted by this buzzer
-									if(!alertedPowerOff) {
-										buzzerState = 1;
-										alertedPowerOff = 1;
-									}
-								}
-
-							// Everything is authorized, on, and working	
-							} else {
-								if(!(disconnectWarning)) LEDState = 3;
-
-								// Has the user been alerted by this buzzer
-								if(!alertedAuthorized) {
-									buzzerState = 3;
-									alertedAuthorized = 1;
-								}
-
-								alertedPowerOff = 0; // Resetting buzzer alert
-							}
-							
-							// Check to see if the currently inserted RFID Token needs to be re-authenticated
-							if(millis() > (REAUTHENTICATE_TIME + lastAuthenticated)) {
-
-								// Compare currently inserted RFID Token with currently authorized Token
-								if(!(comparingRFIDTokens) && !(disconnectingWarning)) {
-
-									if(compareRFIDTokens()) {
-										lastAuthenticated = millis();
-										disconnectWarning = 0;
-								
-									// Currently inserted RFID Token does not match
-									// Start disconnect time to give time to fix issue before power disconnect
-									} else {
-										if(!(disconnectWarning) && !(disconnectingWarning)) powerWarning('r');
-									}
-								}
-							}
-						
-						// Alert user that they are NOT authorized to use this Equipment
+							// There was an error
 						} else {
-							powerDisconnect('a');
+							// Error handling
 						}
+						
+						// Check to see if the currently inserted RFID Token needs to be re-authenticated
+						if(millis() > (REAUTHENTICATE_TIME + lastAuthenticated)) {
 
-					// RFID Token needs to be authenticated	
+							// Compare currently inserted RFID Token with currently authorized Token
+							if(compareRFIDTokens('R')) {
+								lastAuthenticated = millis();
+						
+							// Currently inserted RFID Token does not match
+							// Start disconnect time to give time to fix issue before power disconnect
+							} else {
+								powerWarning('R');
+							}
+						}
+					
+					// Alert user that they are NOT authorized to use this Equipment
 					} else {
-						alertedAuthorized = 0; // Resetting alert 
-						LEDState = 12;
-						authenticateRFIDToken();
+						powerDisconnect('A');
 					}
 
-				// RFID Token needs to be read and set	
-				} else {
-					LEDState = 13;
-					if(!(gettingRFIDToken)) {
-						gettingRFIDToken = 1;
-						if(getRFIDToken()) {
-							strncpy(RFIDToken, tempRFIDToken, 13);
-						}
-					}
+				// RFID Token needs to be authenticated	
+				} else { 
+					LEDState = 12;
+					authenticateRFIDToken();
 				}
 
-			// Wait for a RFID Token to be inserted
+			// RFID Token needs to be read and set	
 			} else {
-				if(powerRelayState == 1) {
-					if(!(disconnectWarning) && !(disconnectingWarning)) powerWarning('i');
+				LEDState = 13;
+				if(RFIDAttempts < RFID_MAX_ATTEMPTS) {
+					if(getRFIDToken('A')) {
+						strncpy(RFIDToken, tempRFIDToken, 13);
+					}
 				} else {
-					LEDState = 4;
-					resetVariables();
+					powerDisconnect('M');
 				}
+			}
+
+		// Wait for a RFID Token to be inserted
+		} else {
+			// Was the Token Removed
+			if(powerRelayState == 1) {
+				powerWarning('I');
+			} else {
+				LEDState = 4;
+				resetVariables();
 			}
 		}
 	}
-	
 }
-
-PI_THREAD(LEDHandler) {
 
 /****************** Different LED States ****************************
 
@@ -256,6 +236,7 @@ PI_THREAD(LEDHandler) {
 * 13 = Slowly blinking Yellow
 * 14 = Fast blinking Yellow
 ********************************************************************/
+PI_THREAD(LEDHandler) {
 // Code used for testing 
 	int LEDLastState;
 	int led;
@@ -368,8 +349,6 @@ PI_THREAD(LEDHandler) {
 	} 
 }
 
-PI_THREAD(buzzerHandler) {
-
 /****************** Different Buzzer States ****************************
 
 * 0 = RFID Tag error during re authentication
@@ -379,28 +358,35 @@ PI_THREAD(buzzerHandler) {
 * 4 = Start up
 
 ********************************************************************/
+PI_THREAD(buzzerHandler) {
 }
 
 PI_THREAD(PowerRelayHandler) {
-
 	for(;;) {
 		int currentRelayState;
 
 		currentRelayState = digitalRead(POWER_RELAY);
 
-		if(requestedPowerRelayState != powerRelayState) {
+		if(requestedPowerRelayState != currentRelayState) {
 			digitalWrite(POWER_RELAY, requestedPowerRelayState);
+		} else {
+			powerRelayState = currentRelayState;
 		}
-		powerRelayState = currentRelayState;
 	}
 }
 
-PI_THREAD(powerDiscountCounter) {
-	printf("Power Disconnect Eminent!\n");
-	sleep(45);
-	requestedPowerRelayState = 0;
-	printf("Power Disconnected.\n");
-	resetVariables();
+PI_THREAD(RFIDPowerHandler) {
+	for(;;) {
+		int currentRFIDPowerState;
+
+		currentRFIDPowerState = digitalRead(RFID_POWER);
+
+		if(requestedRFIDPowerState != currentRFIDPowerState) {
+			digitalWrite(RFID_POWER, requestedRFIDPowerState);
+		} else {
+			RFIDPowerState = currentRFIDPowerState;
+		}
+	}
 }
 
 // Setup Function 
@@ -424,6 +410,9 @@ void setup(void) {
 
 	// Fire Power Relay Handler
 	piThreadCreate(PowerRelayHandler);
+
+	// Fire RFID Power Handler
+	piThreadCreate(RFIDPowerHandler);
 
 	// Fire LED Handler
 	piThreadCreate(LEDHandler);
@@ -480,28 +469,22 @@ void initialize() {
 }
 
 void resetVariables(void) {
-	// Setting Pins to their Initial State
-	digitalWrite(RFID_POWER, LOW);
 
-	// Setting Variables to their Initial Values
+	// Resetting authentication variables to their initial values
 	RFIDTokenSet = 0;
 	authenticated = 0;
 	authorized = 0;
 
-		// State Variables
+	// State Variables
 	IRInterruptState = digitalRead(IR_INTERRUPT);
 	powerButtonState = digitalRead(POWER_BUTTON);
-	powerRelayState = digitalRead(POWER_RELAY); 
-	requestedPowerRelayState = 0;
-	connectingPower = 0;
-	disconnectWarning = 0;
-	disconnectingWarning = 0;
-	alertedPowerOff = 0;
-	alertedAuthorized = 0;
+	powerRelayState = digitalRead(POWER_RELAY);
+	RFIDPowerState = digitalRead(RFID_POWER);
 
-		// Function Variables
-	gettingRFIDToken = 0;
-	comparingRFIDTokens = 0;
+	// Function Variables
+	requestedPowerRelayState = 0;
+	requestedRFIDPowerState = 0;
+	RFIDAttempts = 0;
 }
 
 void IRInterrupt(void) {
@@ -536,22 +519,41 @@ void powerInterrupt(void) {
 	}
 }
 
-int getRFIDToken(void) {
+int getRFIDToken(char reason) {
+	// A = initial read state
+	// U = Comparison failed but is the new Token authorized? 
+	// R = Re-authenticating Token (comparing Token)
+	// P = PowerWarning  (comparing Token) 
+
+	char _reason = reason; 
+	int RFIDPowerCounter = 0;
 	int fd;
 	int RFIDReadTime = 0;
 	char readChar;
 	int startCharDetected = 0;
 	int lastCharSet = 0;
 	int endCharDetected = 0; 
+	int success = 0;
 
+	RFIDAttempts ++;
 	printf("Attempting to read the RFID Token\n");
 	// Turn on RFID Reader
-	digitalWrite(RFID_POWER, HIGH);
+	requestedRFIDPowerState = 1;
+	// Giving the RFIDPowerHandler a chance to change the power state
+	while(!(RFIDPowerState) && RFIDPowerCounter < 5) {
+		RFIDPowerCounter ++;
+		sleep(1);
+	}
+	if(RFIDPowerCounter >= 5) {
+		// Error handling
+		return 0;
+	}
+
 
 	// Wait a little for the reader to start up
 	delay(10);
 	// Begin serial communication with RFID reader
-	fd = serialOpen("/dev/ttyAMA0", 9600);
+	fd = serialOpen("/dev/ttyAMA0", RFID_BANDRATE);
 	if(fd < 0) {
 		fprintf (stderr, "Unable to open serial device: %s\n", strerror (errno)) ;
 		gettingRFIDToken = 0;
@@ -559,78 +561,76 @@ int getRFIDToken(void) {
 	}
 	serialFlush(fd);
 	do {
-		// Is there something inserted (This will be low/0 if token is inserted)
-		if(IRInterruptState == 1 && !(powerRelayState)) return 0;
-		if(disconnectingWarning == 1) return 0;
-		// Has RFID read time been set? If not, set it
-		if(RFIDReadTime < millis()) {
-			RFIDReadTime = millis() + RFID_READ_TIME;
-		}
-		// Check to see if any chars are available
-		int dataAvail = serialDataAvail(fd);
-		// Are there chars available?
-		if(serialDataAvail(fd) > 0) {
-			// Read in char and check read variables
-			readChar = serialGetchar(fd);
-			if(startCharDetected == 1 && endCharDetected == 1) {
-				// Token has been set, turn off RFID reader,clear serial, return 0
-				digitalWrite(RFID_POWER, LOW);
-				serialFlush(fd);
-				serialClose(fd);
-				RFIDTokenSet = 1;
-				printf("RFID Token: %s\n", tempRFIDToken);
-				gettingRFIDToken = 0;
-				return 1;
-			} else if(startCharDetected) {
-				// We've started to read token, check where we are 
-				if(lastCharSet < 12 && lastCharSet >= 0) { // Reader supply's 12 chars. Start, End, and 10 chars in the actual token
-					tempRFIDToken[lastCharSet] = readChar;
-					lastCharSet ++;
-				} else if (lastCharSet == 12 && readChar == 3) {
-					tempRFIDToken[12] = '\0';
-					endCharDetected = 1;
-				} else { // Clear everything and try again
-					serialFlush(fd);
-					lastCharSet = 0;
-					startCharDetected = 0;
-					endCharDetected = 0;
-				}
-			} else if(!(startCharDetected)) {
-				// Check to see if current char is the start char , if not discard
-				if(readChar == 2) {
-					startCharDetected = 1;
-				}
-			}
-		} else if(startCharDetected == 1 && endCharDetected == 1) {
-			// Token has been set, turn RFID reader off and return 0
+		if(success) {
 			digitalWrite(RFID_POWER, LOW);
 			serialFlush(fd);
 			serialClose(fd);
 			RFIDTokenSet = 1;
 			printf("RFID Token: %s\n", tempRFIDToken);
-			gettingRFIDToken = 0;
 			return 1;
-		} else if(serialDataAvail(fd) < 0) {
-			fprintf (stderr, "Unable to read serial data: %s\n", strerror (errno));
-			gettingRFIDToken = 0;
-			return 0;
+		} else {
+
+			// NOTE: determine variables we need to monitor during loop
+			
+			// If we're in the read state we do not need to continue if IRI goes low
+			if(_reason == 'A' && IRInterruptState == 0) return 0;
+			
+			if(disconnectingWarning == 1) return 0;
+
+			// Has RFID read time been set? If not, set it
+			if(RFIDReadTime < millis()) RFIDReadTime = millis() + RFID_READ_TIME;
+
+			// Are there chars available?
+			if(serialDataAvail(fd) > 0) {
+				// Read in char and check read variables
+				readChar = serialGetchar(fd);
+				if(startCharDetected == 1 && endCharDetected == 1) {
+					// Token has been set
+					success = 1;
+				} else if(startCharDetected) {
+					// We've started to read token, check where we are 
+					if(lastCharSet < 12 && lastCharSet >= 0) { // Reader supply's 12 chars. Start, End, and 10 chars in the actual token
+						tempRFIDToken[lastCharSet] = readChar;
+						lastCharSet ++;
+					} else if (lastCharSet == 12 && readChar == 3) {
+						tempRFIDToken[12] = '\0';
+						endCharDetected = 1;
+					} else { // Clear everything and try again
+						serialFlush(fd);
+						lastCharSet = 0;
+						startCharDetected = 0;
+						endCharDetected = 0;
+					}
+				} else if(!(startCharDetected)) {
+					// Check to see if current char is the start char , if not discard
+					if(readChar == 2) {
+						startCharDetected = 1;
+					}
+				}
+			} else if(startCharDetected == 1 && endCharDetected == 1) {
+				// Token has been set, turn RFID reader off and return 0
+				success = 1;
+			} else if(serialDataAvail(fd) < 0) {
+				fprintf (stderr, "Unable to read serial data: %s\n", strerror (errno));
+				gettingRFIDToken = 0;
+				return 0;
+			}
 		}
 	} while(millis() < RFIDReadTime);
 	// If the end char has not been set by this point the RFID Token can not be read
 	if(!(endCharDetected)) {
 		fprintf (stderr, "Unable to read RFID Token: Allotted time has expired!\n");
 		digitalWrite(RFID_POWER, LOW);
-		gettingRFIDToken = 0;
 		serialFlush(fd);
 		serialClose(fd);
 		return 0;
-	}
+	}	
 }
 
 int authenticateRFIDToken() {
 	printf("Authenticated the RFID Token with user database...\n");
 	sleep(10);
-	
+	char shane[13] = {'3','7','0','0','1','8','B','5','6','E','F','4'};
 	int authCompare = strcmp(shane, RFIDToken);
 	if(authCompare == 0) {
 		printf("User is authorized to use this machine.\n");
@@ -643,31 +643,26 @@ int authenticateRFIDToken() {
 	}
 }
 
-int compareRFIDTokens() {
-	comparingRFIDTokens = 1;
+int compareRFIDTokens(char reason) {
+	char _reason = reason; // R = Reauthenticating P = powerWarning
+	
 	printf("Comparing authenticated token with currently inserted token\n");
 	// Initializing Local Variables
 	int stringCompare;
-	// Checking to see if we're already setting a Token 
-	if(!(gettingRFIDToken)) {
-		gettingRFIDToken = 1;
-		// Reading currently inserted Token
-		if(getRFIDToken()) {
-			// Comparing Tokens
-			stringCompare = strcmp(RFIDToken, tempRFIDToken);
-			if(stringCompare == 0) {
-				// Tokens are the same. Return true
-				comparingRFIDTokens = 0;
-				return 1;
-			} else {
-				// Tokens are different. Return False
-				comparingRFIDTokens = 0;
-				return 0;
-			}
+
+	// Reading currently inserted Token
+	if(getRFIDToken(_reason)) {
+		// Comparing Tokens
+		stringCompare = strcmp(RFIDToken, tempRFIDToken);
+		if(stringCompare == 0) {
+			// Tokens are the same. Return true
+			return 1;
+		} else {
+			// Tokens are different. Return False
+			// NOTE: Here is where we need to authenticate the new token
+			return 0;
 		}
 	}
-	comparingRFIDTokens = 0;
-	return 0;
 }
 
 int powerConnect(char reason) {
@@ -681,7 +676,12 @@ int powerDisconnect(char reason) {
 		disconnectingWarning = 1;
 		LEDState = 0;
 		buzzerState = 2;
-		piThreadCreate(powerDiscountCounter);
+		printf("Power Disconnect Eminent!\n");
+	sleep(45);
+	requestedPowerRelayState = 0;
+	printf("Power Disconnected.\n");
+	resetVariables();
+		
 	}
 }
 
