@@ -55,7 +55,8 @@
 
 	// Other Defined Variables
 		// Debounce time in mS
-#define DEBOUNCE_TIME 100
+#define DEBOUNCE_TIME 200
+		// RFID Consts
 #define RFID_BANDRATE 9600
 #define RFID_MAX_ATTEMPTS 5
 		// Time in mS to attempt to read RFID Token
@@ -64,6 +65,7 @@
 #define REAUTHENTICATE_TIME 30000
 		// Time in mS for disconnect warning
 #define DISCONNECT_TIME 30000
+#define DISCONNECT_WARNING 30000
 		// LED Rate Setting
 #define LED_SOLID 0
 #define LED_SLOW 1
@@ -97,7 +99,6 @@ int buzzerState; // "t" RFID tag error make sure its attached, "f" power button 
 
 	// Function Variables
 int lastAuthenticated;
-int disconnectTime;
 int RFIDAttempts;
 int requestedPowerRelayState;
 int requestedRFIDPowerState;
@@ -107,14 +108,14 @@ int requestedRFIDPowerState;
 
 // Function Declarations 
 void initialize(void);
+void resetVariables(void);
 void IRInterrupt(void);
 void powerInterrupt(void);
-int getRFIDToken(void);
-int authenticateRFIDToken();
-int compareRFIDTokens(void);
+int getRFIDToken(char);
+int authenticateRFIDToken(void);
+int compareRFIDTokens(char);
 int powerConnect(char);
-int powerDisconnect(char);
-void resetVariables(void);
+void powerDisconnect(char);
 int powerWarning(char);
 
 PI_THREAD(accessControlHandler) {
@@ -192,7 +193,7 @@ PI_THREAD(accessControlHandler) {
 						strncpy(RFIDToken, tempRFIDToken, 13);
 					}
 				} else {
-					powerDisconnect('M');
+					// Error handling
 				}
 			}
 
@@ -435,7 +436,7 @@ int main(void) {
 }
 
 
-void initialize() {
+void initialize(void) {
 	printf("Initializing this machines Access Control System...\n");
 	// Initializing MySQL 
 	MYSQL *conn;
@@ -549,20 +550,19 @@ int getRFIDToken(char reason) {
 		return 0;
 	}
 
-
 	// Wait a little for the reader to start up
 	delay(10);
 	// Begin serial communication with RFID reader
 	fd = serialOpen("/dev/ttyAMA0", RFID_BANDRATE);
 	if(fd < 0) {
 		fprintf (stderr, "Unable to open serial device: %s\n", strerror (errno)) ;
-		gettingRFIDToken = 0;
+		requestedRFIDPowerState = 0;
 		return 0 ;
 	}
 	serialFlush(fd);
 	do {
 		if(success) {
-			digitalWrite(RFID_POWER, LOW);
+			requestedRFIDPowerState = 0;
 			serialFlush(fd);
 			serialClose(fd);
 			RFIDTokenSet = 1;
@@ -573,9 +573,10 @@ int getRFIDToken(char reason) {
 			// NOTE: determine variables we need to monitor during loop
 			
 			// If we're in the read state we do not need to continue if IRI goes low
-			if(_reason == 'A' && IRInterruptState == 0) return 0;
-			
-			if(disconnectingWarning == 1) return 0;
+			if(_reason == 'A' && IRInterruptState == 0) {
+				requestedRFIDPowerState = 0;
+				return 0;
+			}
 
 			// Has RFID read time been set? If not, set it
 			if(RFIDReadTime < millis()) RFIDReadTime = millis() + RFID_READ_TIME;
@@ -612,7 +613,7 @@ int getRFIDToken(char reason) {
 				success = 1;
 			} else if(serialDataAvail(fd) < 0) {
 				fprintf (stderr, "Unable to read serial data: %s\n", strerror (errno));
-				gettingRFIDToken = 0;
+				requestedRFIDPowerState = 0;
 				return 0;
 			}
 		}
@@ -620,15 +621,15 @@ int getRFIDToken(char reason) {
 	// If the end char has not been set by this point the RFID Token can not be read
 	if(!(endCharDetected)) {
 		fprintf (stderr, "Unable to read RFID Token: Allotted time has expired!\n");
-		digitalWrite(RFID_POWER, LOW);
+		requestedRFIDPowerState = 0;
 		serialFlush(fd);
 		serialClose(fd);
 		return 0;
 	}	
 }
 
-int authenticateRFIDToken() {
-	printf("Authenticated the RFID Token with user database...\n");
+int authenticateRFIDToken(void) {
+	printf("Authenticating the RFID Token with user database...\n");
 	sleep(10);
 	char shane[13] = {'3','7','0','0','1','8','B','5','6','E','F','4'};
 	int authCompare = strcmp(shane, RFIDToken);
@@ -666,50 +667,80 @@ int compareRFIDTokens(char reason) {
 }
 
 int powerConnect(char reason) {
-		printf("Connecting Power\n");
-		requestedPowerRelayState = 1;
-		connectingPower = 0;
+	int _reason = reason; // A = Authorized
+	int powerRelayCounter = 0;
+
+	printf("Connecting Power\n");
+	requestedPowerRelayState = 1;
+	while(!powerRelayState && powerRelayCounter < 5) {
+		powerRelayCounter ++;
+		sleep(1);
+	}
+	if(powerRelayCounter >= 5) {
+		// Error handling
+		return 0;
+	}
+	return 1;
 }
 
-int powerDisconnect(char reason) {
-	if(!(disconnectingWarning)) {
-		disconnectingWarning = 1;
-		LEDState = 0;
-		buzzerState = 2;
-		printf("Power Disconnect Eminent!\n");
-	sleep(45);
-	requestedPowerRelayState = 0;
-	printf("Power Disconnected.\n");
-	resetVariables();
+void powerDisconnect(char reason) {
+	char _reason = reason; // B = , A = , R = , I =
+	int _disconnectTime;
+	int powerRelayCounter = 0;
+
+	if(powerRelayState) {
+		if(_reason == 'R' || _reason == 'I') {
+			LEDState = 0;
+			buzzerState = 2;
+
+			printf("Power Disconnect Eminent!\n");
+			_disconnectTime = millis() + DISCONNECT_TIME;
 		
+			while(millis() < _disconnectTime) sleep(1);
+		}
+		requestedPowerRelayState = 0;
+		while(!powerRelayState && powerRelayCounter < 5) {
+			powerRelayCounter ++;
+			sleep(1);
+		}
+		if(powerRelayCounter >= 5) {
+			// Error handling
+
+		}
+		
+		if(!(_reason == 'B')) {
+			printf("Power Disconnected.\n");
+			while(IRInterruptState) sleep(1);
+			resetVariables();
+		}
+	} else if(_reason == 'A') {
+		LEDState = 0;
+		while(IRInterruptState) sleep(1);
+		resetVariables();
 	}
 }
 
 int powerWarning(char reason) {
-	int tokensMatch = 0;
+	char _reason = reason; //R = Re-authentication, I = IRI
+	int _disconnectWarning;
 
-	if(!(disconnectingWarning)) {
-		LEDState = 1;
-		buzzerState = 0;
-		if(!(disconnectWarning)) {
-			disconnectWarning = 1;
-			disconnectTime = millis() + DISCONNECT_TIME;
-		}
-		while(millis() < disconnectTime && !(tokensMatch)) {
-			if(!(comparingRFIDTokens) && !(disconnectingWarning)) {
-				comparingRFIDTokens = 1;
-				if(compareRFIDTokens()) {
-					lastAuthenticated = millis();
-					disconnectWarning = 0;
-					tokensMatch = 1;
-				}
-			}
-		}
-		// Has disconnect time expired? If so, start disconnect
-		if(millis() > disconnectTime) {
-			int d = powerDisconnect('r');
+	LEDState = 1;
+	buzzerState = 0;
+	
+	_disconnectWarning = millis() + DISCONNECT_WARNING;
+		
+	while(millis() < _disconnectWarning) {
+		
+		if(_reason == 'R' && !(IRInterruptState)) return 0;
+		if(_reason == 'I' && !(powerRelayState)) return 0;
+		if(compareRFIDTokens(_reason)) {
+			lastAuthenticated = millis();
+			return 1;
 		}
 	}
+	
+	powerDisconnect(_reason);
+
 }
 
 // Backup power? LED blink yellow 
