@@ -31,10 +31,11 @@
         <div class="form-group col-sm-12">
             <label for="adder" class="h4 ">Current Member</label>
             <div class="form-group col-sm-10">
-            	<input type="text" id="adder" class="form-control"  placeholder="Current Member's Badge/Fob ID" required readonly>
+            <!-- placeholder="Current Member's Badge/Fob ID" -->
+            	<input type="text" id="adder" class="form-control"  placeholder="Shane E. Bryan (During Testing)" required readonly>
         	</div>
             <div class="form-group col-sm-2">
-            	<input class="btn btn-primary" type="button" value="Scan" id="adderButton" onclick="getRFIDCurrentMember();">
+            	<input class="btn btn-primary" type="button" value="Scan" id="adderButton" onclick="getRFIDCurrentMember();" disabled="disabled">
          	</div>
         </div>
         <div class="form-group col-sm-12">
@@ -46,7 +47,7 @@
             	<input class="btn btn-primary" type="button" value="Scan" id="addeeButton" onclick="getRFIDNewMember();">
         	</div>
         </div>
-        <button type="submit" id="form-submit" class="btn btn-success btn-lg pull-right ">Submit</button>
+        <button type="button" id="form-submit" class="btn btn-success btn-lg pull-right " onclick="submitForm()">Submit</button>
 		<div id="mbrSubmit" class="h3 text-center hidden">New Member Added!</div>
     </form>
 </div>

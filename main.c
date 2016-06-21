@@ -250,7 +250,9 @@ PI_THREAD(LEDHandler) {
 	int LEDLastState;
 	int led;
 	int rate;
-	int colorHEX;
+	int ledRGB_Red;
+	int ledRGB_Green;
+	int ledRGB_Blue;
 
 	for(;;) {
 		if(LEDState != LEDLastState) {
@@ -262,120 +264,128 @@ PI_THREAD(LEDHandler) {
 				digitalWrite(LED_PURPLE, LOW);
 				digitalWrite(LED_YELLOW, LOW);
 			//}
-			serialPutchar(fd,2);
-			serialPrintf(fd,"LED:clear\n");
-			serialPutchar(fd,3);
-			colorHEX;
+			//serialPutchar(fd,2);
+			//serialPrintf(fd,"LED:0,0,0\r\n");
+			
+			ledRGB_Red = 0;
+			ledRGB_Green = 0;
+			ledRGB_Blue = 0;
 			LEDLastState = LEDState;
 
 			switch(LEDState) {
 				case 0:
 					led = LED_RED;
 					rate = LED_SOLID;
-					colorHEX = 1255000000;
+					ledRGB_Red = 255;
 				break;
 				case 1:
 					led = LED_RED;
 					rate =LED_SLOW;
-					colorHEX = 1255000000;
+					ledRGB_Red = 255;
 				break;
 				case 2:
 					led = LED_RED;
 					rate = LED_FAST;
-					colorHEX = 1255000000;
+					ledRGB_Red = 255;
 				break;
 				case 3:
 					led = LED_GREEN;
 					rate = LED_SOLID;
-					colorHEX = 1000255000;
+					ledRGB_Green = 255;
 				break;
 				case 4:
 					led = LED_GREEN;
 					rate = LED_SLOW;
-					colorHEX = 1000255000;
+					ledRGB_Green = 255;
 				break;
 				case 5:
 					led = LED_GREEN;
 					rate = LED_FAST;
-					colorHEX = 1000255000;
+					ledRGB_Green = 255;
 				break;
 				case 6:
 					led = LED_BLUE;
 					rate = LED_SOLID;
-					colorHEX = 1000000255;
+					ledRGB_Blue = 255;
 				break;
 				case 7:
 					led = LED_BLUE;
 					rate = LED_SLOW;
-					colorHEX = 1000000255;
+					ledRGB_Blue = 255;
 				break;
 				case 8:
 					led = LED_BLUE;
 					rate = LED_FAST;
-					colorHEX = 1000000255;
+					ledRGB_Blue = 255;
 				break;
 				case 9:
 					led = LED_PURPLE;
 					rate = LED_SOLID;
-					colorHEX = 1128000128;
+					ledRGB_Red = 128;
+					ledRGB_Blue = 128;
 				break;
 				case 10:
 					led = LED_PURPLE;
 					rate = LED_SLOW;
-					colorHEX = 1128000128;
+					ledRGB_Red = 128;
+					ledRGB_Blue = 128;
 				break;
 				case 11:
 					led = LED_PURPLE;
 					rate = LED_FAST;
-					colorHEX = 1128000128;
+					ledRGB_Red = 128;
+					ledRGB_Blue = 128;
 				break;
 				case 12:
 					led = LED_YELLOW;
 					rate = LED_SOLID;
-					colorHEX = 1255255000;
+					ledRGB_Red = 255;
+					ledRGB_Green = 255;
 				break;
 				case 13:
 					led = LED_YELLOW;
 					rate = LED_SLOW;
-					colorHEX = 1255255000;
+					ledRGB_Red = 255;
+					ledRGB_Green = 255;
 				break;
 				case 14:
 					led = LED_YELLOW;
 					rate = LED_FAST;
-					colorHEX = 1255255000;
+					ledRGB_Red = 255;
+					ledRGB_Green = 255;
 				break;
 				// Error
 				default:
 					led = LED_RED;
 					rate = LED_FAST;
-					colorHEX = 1255000000;
+					ledRGB_Red = 255;
 			}
 			serialPutchar(fd,2);
-			serialPrintf(fd,"LED:%u\n",colorHEX);
-			serialPutchar(fd,3);
+			serialPrintf(fd,"LED:%u,%u,%u\r\n",ledRGB_Red, ledRGB_Green, ledRGB_Blue);
+			
 			switch(rate) {
 				// Solid
 				case 0:
-					serialPutchar(fd,2);
-					serialPrintf(fd,"LEDRATE:%u\n",0);
+					
+					serialPrintf(fd,"LEDRATE:%u\r\n",0);
 					serialPutchar(fd,3);
 				break;
 				// Slow Blink
 				case 1:
-					serialPutchar(fd,2);
-					serialPrintf(fd,"LEDRATE:%u\n",LED_SLOW_RATE);
+					
+					serialPrintf(fd,"LEDRATE:%u\r\n",LED_SLOW_RATE);
 					serialPutchar(fd,3);
 				break;
 				// Fast Blink
 				case 2:
-					serialPutchar(fd,2);
-					serialPrintf(fd,"LEDRATE:%u\n",LED_FAST_RATE);
+					
+					serialPrintf(fd,"LEDRATE:%u\r\n",LED_FAST_RATE);
 					serialPutchar(fd,3);
 				break;
 				// Error
 				default:
-					serialPutchar(fd,2);
-					serialPrintf(fd,"LEDRATE:%u\n",LED_FAST_RATE);
+
+					serialPrintf(fd,"LEDRATE:%u\r\n",LED_FAST_RATE);
 					serialPutchar(fd,3);
 			}
 			

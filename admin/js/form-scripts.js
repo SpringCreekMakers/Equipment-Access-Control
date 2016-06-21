@@ -3,22 +3,24 @@
     var current_effect = 'bounce'; //
 
 
-("#newMemberForm").submit(function(event){
+/* ("#newMemberForm").submit(function(event){
     // cancels the form submission
     event.preventDefault();
     submitForm();
 });
-
+*/ 
 function submitForm(){
     // Initiate Variables With Form Content
-    var name = $("#name").val();
-    var email = $("#email").val();
-    var message = $("#message").val();
+    var first_name_var = $("#first_name").val();
+    var last_name_var = $("#last_name").val();
+    var adder_var = $("#adder").val();
+    var addee_var = $("#addee").val();
+    
  
     $.ajax({
         type: "POST",
-        url: "php/form-process.php",
-        data: "name=" + name + "&email=" + email + "&message=" + message,
+        url: "form_process.php",
+        data: {first_name: first_name_var, last_name: last_name_var, adder: adder_var, addee: addee_var},
         success : function(text){
             if (text == "success"){
                 formSuccess();
@@ -27,7 +29,8 @@ function submitForm(){
     });
 }
 function formSuccess(){
-    $( "#msgSubmit" ).removeClass( "hidden" );
+    $('#newMemberForm').trigger('reset');
+    $( "#mbrSubmit" ).removeClass( "hidden" );
 }
 
 function getRFIDCurrentMember(){
